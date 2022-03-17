@@ -7,7 +7,6 @@ const app = new cdk.App();
 new Minecraft(app, 'Minecraft', {
     spotPrice: "0.0126", 
     minecraftImageTag: "latest",
-    vpcCidrBlockRange: "10.100.0.0/26",
     minecraftEnvVars: {
         TYPE: "PAPER"
     },

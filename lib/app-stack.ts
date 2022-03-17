@@ -35,7 +35,6 @@ interface Props extends StackProps {
   spotPrice: string;
   minecraftEnvVars?: { [key: string]: string };
   minecraftImageTag: string;
-  vpcCidrBlockRange: string;
   domainSettings?: {
     provider: "google";
     username: string;
