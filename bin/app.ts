@@ -10,5 +10,11 @@ new Minecraft(app, 'Minecraft', {
     vpcCidrBlockRange: "10.100.0.0/26",
     minecraftEnvVars: {
         TYPE: "PAPER"
+    },
+    domainSettings: {
+        domain: "minecraft.gozza.dev",
+        username: "",
+        password: "",
+        provider: "google"
     }
 });
