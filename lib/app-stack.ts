@@ -41,6 +41,8 @@ interface Props extends StackProps {
     password: string;
     domain: string;
   };
+  rconPassword: string;
+  rconPort: string
 }
 
 export class Minecraft extends Stack {
@@ -50,7 +52,7 @@ export class Minecraft extends Stack {
     const vpc = new Vpc(this, "minecraft-vpc", {
       enableDnsHostnames: true,
       enableDnsSupport: true,
-      natGateways: 0,
+      natGateways: 0, // this is not cheap and we don't want any
       subnetConfiguration: [
         { cidrMask: 23, name: "Public", subnetType: SubnetType.PUBLIC },
         {
@@ -98,10 +100,22 @@ export class Minecraft extends Stack {
     asg.addSecurityGroup(minecraftSecurityGroup);
 
     asg.userData.addCommands(
+
+      // enable SSM agent for ssh through aws console
       "sudo systemctl enable amazon-ssm-agent",
       "sudo systemctl start amazon-ssm-agent",
+
+      // mount shared efs for easy file inspecting and modifications
       "mkdir /opt/minecraft-efs",
-      `mount -t efs ${fileSystem.fileSystemId} /opt/minecraft-efs/`
+      `mount -t efs ${fileSystem.fileSystemId} /opt/minecraft-efs/`,
+
+      // install rcon tools for easy server level command running
+      "sudo yum -y install wget",
+      `wget "https://github.com/itzg/rcon-cli/releases/download/1.5.1/rcon-cli_1.5.1_linux_386.tar.gz" -P /usr/tmp`,
+      "tar -xf /usr/tmp/rcon-cli_1.5.1_linux_386.tar.gz -C /usr/tmp",
+      "sudo mv /usr/tmp/rcon-cli /usr/bin",
+      "sudo chmod +x /usr/bin/rcon-cli",
+      `alias rcon='rcon-cli --port ${props.rconPort} --password ${props.rconPassword}'`
     );
 
     asg.role.addManagedPolicy(
@@ -169,6 +183,7 @@ export class Minecraft extends Stack {
         image: ContainerImage.fromRegistry(
           `itzg/minecraft-server:${props.minecraftImageTag}`
         ),
+        containerName: "minecraft-server",
         memoryReservationMiB: 1024,
         portMappings: [
           {
@@ -177,14 +192,16 @@ export class Minecraft extends Stack {
             protocol: Protocol.TCP,
           },
           {
-            containerPort: 25575,
-            hostPort: 25575,
+            containerPort: Number(props.rconPort),
+            hostPort: Number(props.rconPort),
             protocol: Protocol.TCP,
           },
         ],
         environment: {
           EULA: "TRUE",
           ...props.minecraftEnvVars,
+          RCON_PASSWORD: props.rconPassword,
+          RCON_PORT: props.rconPort
         },
       }
     );

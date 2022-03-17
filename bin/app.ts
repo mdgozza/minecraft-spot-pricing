@@ -15,5 +15,7 @@ new Minecraft(app, 'Minecraft', {
         username: "",
         password: "",
         provider: "google"
-    }
+    },
+    rconPassword: "",
+    rconPort: "25575"
 });
