@@ -95,7 +95,10 @@ export class Minecraft extends Stack {
       vpc,
     });
 
+    // allow minecraft client
     minecraftSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(25565));
+    // allow http web ( mainly for dynmap )
+    minecraftSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(80))
 
     asg.addSecurityGroup(minecraftSecurityGroup);
 
@@ -196,6 +199,11 @@ export class Minecraft extends Stack {
             hostPort: Number(props.rconPort),
             protocol: Protocol.TCP,
           },
+          {
+            containerPort: 8123,
+            hostPort: 80,
+            protocol: Protocol.TCP
+          }
         ],
         environment: {
           EULA: "TRUE",
