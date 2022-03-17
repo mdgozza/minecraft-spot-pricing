@@ -68,26 +68,21 @@ export class Minecraft extends Stack {
 
     asg.userData.addCommands(
       'sudo systemctl enable amazon-ssm-agent', 
-      'sudo systemctl start amazon-ssm-agent'
+      'sudo systemctl start amazon-ssm-agent',
+      'mkdir /opt/minecraft-efs',
+      `mount -t efs ${fileSystem.fileSystemId} /opt/minecraft-efs/`
     )
 
     asg.role.addManagedPolicy(ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore"))
 
-    const lamdaRole = new Role(this, 'minecraft-lambda-role', {
-      assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
-      description: "access to ec2 read only"
-    })
-
     const minecraftEc2LaunchHandler = new NodejsFunction(this, 'minecraft-ec2-launch-handler', {
       handler: "handler",
       entry: './lib/minecraftEc2LaunchHook.ts',
-      timeout: Duration.seconds(20),
+      timeout: Duration.seconds(30),
     })
     
     minecraftEc2LaunchHandler.role?.addManagedPolicy(ManagedPolicy.fromAwsManagedPolicyName("AmazonEC2ReadOnlyAccess"))
     
-    
-
     asg.addLifecycleHook("minecraft-ec2-launch-hook", {
       notificationTarget: new FunctionHook(minecraftEc2LaunchHandler),
       lifecycleTransition: LifecycleTransition.INSTANCE_LAUNCHING,
@@ -127,7 +122,13 @@ export class Minecraft extends Stack {
           containerPort: 25565,
           hostPort: 25565,
           protocol: Protocol.TCP
+        },
+        {
+          containerPort: 25575,
+          hostPort: 25575,
+          protocol: Protocol.TCP
         }
+
       ],
       environment: {
         EULA: "TRUE",
@@ -150,6 +151,5 @@ export class Minecraft extends Stack {
         }
       ],
     })
-
   }
 }
