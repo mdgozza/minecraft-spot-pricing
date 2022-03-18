@@ -65,21 +65,6 @@ export class Minecraft extends Stack {
       ],
     });
 
-    const efsSecurityGroup = new SecurityGroup(this, "minecraft-efs-sg", {
-      vpc,
-    });
-    efsSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(2049));
-
-    const fileSystem = FileSystem.fromFileSystemAttributes(
-      this,
-      "minecraft-efs",
-      {
-        fileSystemId: "fs-039b5082f7ed12fee",
-        securityGroup: efsSecurityGroup,
-        
-      }
-    );
-
     const minecraftEbs = new Volume(this, "minecraft-ebs", {
       availabilityZone: vpc.availabilityZones[0],
       removalPolicy: RemovalPolicy.RETAIN,
@@ -113,25 +98,24 @@ export class Minecraft extends Stack {
     asg.addSecurityGroup(minecraftSecurityGroup);
 
     asg.userData.addCommands(
-      // enable SSM agent for ssh through aws console
-      "sudo systemctl enable amazon-ssm-agent",
-      "sudo systemctl start amazon-ssm-agent",
-      `curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"`,
       "sudo yum -y install wget unzip",
+      `curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"`,
       `unzip awscliv2.zip`,
       `sudo ./aws/install -i /usr/local/aws-cli -b /usr/local/bin`,
       `export INSTANCE_ID=$(wget -q -O - http://169.254.169.254/latest/meta-data/instance-id)`,
-      "mkdir /opt/minecraft-efs",
       "mkdir /opt/minecraft-ebs",
-      `mount -t efs ${fileSystem.fileSystemId} /opt/minecraft-efs/`,
-      `/usr/local/bin/aws ec2 attach-volume --volume-id ${minecraftEbs.volumeId} --instance-id $INSTANCE_ID --device /dev/sdb`,
-      `mount /dev/sdb /opt/minecraft-ebs`,
+      `/usr/local/bin/aws ec2 attach-volume --volume-id ${minecraftEbs.volumeId} --instance-id $INSTANCE_ID --device /dev/xvdf`,
+      // enable SSM agent for ssh through aws console
+      "sudo systemctl enable amazon-ssm-agent",
+      "sudo systemctl start amazon-ssm-agent",
       // install rcon tools for easy server level command running
       `wget "https://github.com/itzg/rcon-cli/releases/download/1.5.1/rcon-cli_1.5.1_linux_386.tar.gz" -P /usr/tmp`,
       "tar -xf /usr/tmp/rcon-cli_1.5.1_linux_386.tar.gz -C /usr/tmp",
       "sudo mv /usr/tmp/rcon-cli /usr/bin",
       "sudo chmod +x /usr/bin/rcon-cli",
-      `alias rcon='rcon-cli --port ${props.rconPort} --password ${props.rconPassword}'`
+      `alias rcon='rcon-cli --port ${props.rconPort} --password ${props.rconPassword}'`,
+      `while [[ ! -e /dev/xvdf ]]; do sleep 2; done`,
+      `mount /dev/xvdf /opt/minecraft-ebs`,
     );
 
     asg.role.addManagedPolicy(
@@ -191,11 +175,11 @@ export class Minecraft extends Stack {
     });
 
     taskDef.addVolume({
-      efsVolumeConfiguration: {
-        fileSystemId: fileSystem.fileSystemId,
-      },
       name: "minecraft",
-    });
+      host: {
+        sourcePath: "/opt/minecraft-ebs"
+      }
+    })
 
     const minecraftContainerDef = taskDef.addContainer(
       "minecraft-container-def",
@@ -228,13 +212,16 @@ export class Minecraft extends Stack {
           RCON_PASSWORD: props.rconPassword,
           RCON_PORT: props.rconPort,
         },
+        
       }
     );
+
 
     minecraftContainerDef.addMountPoints({
       containerPath: "/data",
       sourceVolume: "minecraft",
       readOnly: false,
+      
     });
 
     const service = new Ec2Service(this, "minecraft-ec2-service", {
