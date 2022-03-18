@@ -31,6 +31,12 @@ import { ManagedPolicy } from "aws-cdk-lib/aws-iam";
 import { Construct } from "constructs";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { FunctionHook } from "aws-cdk-lib/aws-autoscaling-hooktargets";
+import {
+  attachAndMountEbs,
+  enableSSMAgent,
+  installAwsCli,
+  installYumPackages,
+} from "./utils/userDataCommands";
 
 interface Props extends StackProps {
   spotPrice: string;
@@ -97,25 +103,20 @@ export class Minecraft extends Stack {
 
     asg.addSecurityGroup(minecraftSecurityGroup);
 
+    const deviceId = "/dev/xvdf",
+      mountDir = "/opt/minecraft-ebs",
+      awsCliPath = "/usr/local/bin";
+
     asg.userData.addCommands(
-      "sudo yum -y install wget unzip",
-      `curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"`,
-      `unzip awscliv2.zip`,
-      `sudo ./aws/install -i /usr/local/aws-cli -b /usr/local/bin`,
-      `export INSTANCE_ID=$(wget -q -O - http://169.254.169.254/latest/meta-data/instance-id)`,
-      "mkdir /opt/minecraft-ebs",
-      `/usr/local/bin/aws ec2 attach-volume --volume-id ${minecraftEbs.volumeId} --instance-id $INSTANCE_ID --device /dev/xvdf`,
-      // enable SSM agent for ssh through aws console
-      "sudo systemctl enable amazon-ssm-agent",
-      "sudo systemctl start amazon-ssm-agent",
-      // install rcon tools for easy server level command running
-      `wget "https://github.com/itzg/rcon-cli/releases/download/1.5.1/rcon-cli_1.5.1_linux_386.tar.gz" -P /usr/tmp`,
-      "tar -xf /usr/tmp/rcon-cli_1.5.1_linux_386.tar.gz -C /usr/tmp",
-      "sudo mv /usr/tmp/rcon-cli /usr/bin",
-      "sudo chmod +x /usr/bin/rcon-cli",
-      `alias rcon='rcon-cli --port ${props.rconPort} --password ${props.rconPassword}'`,
-      `while [[ ! -e /dev/xvdf ]]; do sleep 2; done`,
-      `mount /dev/xvdf /opt/minecraft-ebs`,
+      ...enableSSMAgent(),
+      ...installYumPackages(["wget", "unzip"]),
+      ...installAwsCli(awsCliPath),
+      ...attachAndMountEbs({
+        volumeId: minecraftEbs.volumeId,
+        deviceId,
+        mountDir,
+        awsCliPath,
+      })
     );
 
     asg.role.addManagedPolicy(
@@ -177,9 +178,9 @@ export class Minecraft extends Stack {
     taskDef.addVolume({
       name: "minecraft",
       host: {
-        sourcePath: "/opt/minecraft-ebs"
-      }
-    })
+        sourcePath: "/opt/minecraft-ebs",
+      },
+    });
 
     const minecraftContainerDef = taskDef.addContainer(
       "minecraft-container-def",
@@ -212,16 +213,13 @@ export class Minecraft extends Stack {
           RCON_PASSWORD: props.rconPassword,
           RCON_PORT: props.rconPort,
         },
-        
       }
     );
-
 
     minecraftContainerDef.addMountPoints({
       containerPath: "/data",
       sourceVolume: "minecraft",
       readOnly: false,
-      
     });
 
     const service = new Ec2Service(this, "minecraft-ec2-service", {
