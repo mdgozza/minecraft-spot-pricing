@@ -1,4 +1,4 @@
-import { Duration, Stack, StackProps } from "aws-cdk-lib";
+import { Duration, RemovalPolicy, Size, Stack, StackProps } from "aws-cdk-lib";
 import {
   Vpc,
   SecurityGroup,
@@ -8,6 +8,7 @@ import {
   InstanceClass,
   InstanceSize,
   SubnetType,
+  Volume,
 } from "aws-cdk-lib/aws-ec2";
 import {
   AsgCapacityProvider,
@@ -42,7 +43,7 @@ interface Props extends StackProps {
     domain: string;
   };
   rconPassword: string;
-  rconPort: string
+  rconPort: string;
 }
 
 export class Minecraft extends Stack {
@@ -52,6 +53,7 @@ export class Minecraft extends Stack {
     const vpc = new Vpc(this, "minecraft-vpc", {
       enableDnsHostnames: true,
       enableDnsSupport: true,
+      maxAzs: 1,
       natGateways: 0, // this is not cheap and we don't want any
       subnetConfiguration: [
         { cidrMask: 23, name: "Public", subnetType: SubnetType.PUBLIC },
@@ -68,12 +70,20 @@ export class Minecraft extends Stack {
     });
     efsSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(2049));
 
-    const fileSystem = new FileSystem(this, "minecraft-efs", {
-      vpc,
-      vpcSubnets: {
-        subnetType: SubnetType.PRIVATE_ISOLATED,
-      },
-      securityGroup: efsSecurityGroup,
+    const fileSystem = FileSystem.fromFileSystemAttributes(
+      this,
+      "minecraft-efs",
+      {
+        fileSystemId: "fs-039b5082f7ed12fee",
+        securityGroup: efsSecurityGroup,
+        
+      }
+    );
+
+    const minecraftEbs = new Volume(this, "minecraft-ebs", {
+      availabilityZone: vpc.availabilityZones[0],
+      removalPolicy: RemovalPolicy.RETAIN,
+      size: Size.gibibytes(10),
     });
 
     const asg = new AutoScalingGroup(this, "minecraft-asg", {
@@ -98,22 +108,25 @@ export class Minecraft extends Stack {
     // allow minecraft client
     minecraftSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(25565));
     // allow http web ( mainly for dynmap )
-    minecraftSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(80))
+    minecraftSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(80));
 
     asg.addSecurityGroup(minecraftSecurityGroup);
 
     asg.userData.addCommands(
-
       // enable SSM agent for ssh through aws console
       "sudo systemctl enable amazon-ssm-agent",
       "sudo systemctl start amazon-ssm-agent",
-
-      // mount shared efs for easy file inspecting and modifications
+      `curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"`,
+      "sudo yum -y install wget unzip",
+      `unzip awscliv2.zip`,
+      `sudo ./aws/install -i /usr/local/aws-cli -b /usr/local/bin`,
+      `export INSTANCE_ID=$(wget -q -O - http://169.254.169.254/latest/meta-data/instance-id)`,
       "mkdir /opt/minecraft-efs",
+      "mkdir /opt/minecraft-ebs",
       `mount -t efs ${fileSystem.fileSystemId} /opt/minecraft-efs/`,
-
+      `/usr/local/bin/aws ec2 attach-volume --volume-id ${minecraftEbs.volumeId} --instance-id $INSTANCE_ID --device /dev/sdb`,
+      `mount /dev/sdb /opt/minecraft-ebs`,
       // install rcon tools for easy server level command running
-      "sudo yum -y install wget",
       `wget "https://github.com/itzg/rcon-cli/releases/download/1.5.1/rcon-cli_1.5.1_linux_386.tar.gz" -P /usr/tmp`,
       "tar -xf /usr/tmp/rcon-cli_1.5.1_linux_386.tar.gz -C /usr/tmp",
       "sudo mv /usr/tmp/rcon-cli /usr/bin",
@@ -125,6 +138,10 @@ export class Minecraft extends Stack {
       ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore")
     );
 
+    asg.role.addManagedPolicy(
+      ManagedPolicy.fromAwsManagedPolicyName("AmazonEC2FullAccess")
+    );
+
     if (props.domainSettings) {
       const minecraftEc2LaunchHandler = new NodejsFunction(
         this,
@@ -134,8 +151,8 @@ export class Minecraft extends Stack {
           entry: "./lib/minecraftEc2LaunchHook.ts",
           timeout: Duration.seconds(30),
           environment: {
-            ...props.domainSettings
-          }
+            ...props.domainSettings,
+          },
         }
       );
 
@@ -202,14 +219,14 @@ export class Minecraft extends Stack {
           {
             containerPort: 8123,
             hostPort: 80,
-            protocol: Protocol.TCP
-          }
+            protocol: Protocol.TCP,
+          },
         ],
         environment: {
           EULA: "TRUE",
           ...props.minecraftEnvVars,
           RCON_PASSWORD: props.rconPassword,
-          RCON_PORT: props.rconPort
+          RCON_PORT: props.rconPort,
         },
       }
     );
