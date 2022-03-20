@@ -9,6 +9,7 @@ import {
   InstanceSize,
   SubnetType,
   Volume,
+  EbsDeviceVolumeType,
 } from "aws-cdk-lib/aws-ec2";
 import {
   AsgCapacityProvider,
@@ -26,7 +27,6 @@ import {
   DefaultResult,
   LifecycleTransition,
 } from "aws-cdk-lib/aws-autoscaling";
-import { FileSystem } from "aws-cdk-lib/aws-efs";
 import { ManagedPolicy } from "aws-cdk-lib/aws-iam";
 import { Construct } from "constructs";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
@@ -75,6 +75,7 @@ export class Minecraft extends Stack {
       availabilityZone: vpc.availabilityZones[0],
       removalPolicy: RemovalPolicy.RETAIN,
       size: Size.gibibytes(10),
+      volumeType: EbsDeviceVolumeType.GENERAL_PURPOSE_SSD_GP3
     });
 
     const asg = new AutoScalingGroup(this, "minecraft-asg", {
@@ -105,7 +106,8 @@ export class Minecraft extends Stack {
 
     const deviceId = "/dev/xvdf",
       mountDir = "/opt/minecraft-ebs",
-      awsCliPath = "/usr/local/bin";
+      awsCliPath = "/usr/local/bin",
+      dockerVolumeName = "minecraft";
 
     asg.userData.addCommands(
       ...enableSSMAgent(),
@@ -176,9 +178,9 @@ export class Minecraft extends Stack {
     });
 
     taskDef.addVolume({
-      name: "minecraft",
+      name: dockerVolumeName,
       host: {
-        sourcePath: "/opt/minecraft-ebs",
+        sourcePath: mountDir,
       },
     });
 
@@ -189,7 +191,7 @@ export class Minecraft extends Stack {
           `itzg/minecraft-server:${props.minecraftImageTag}`
         ),
         containerName: "minecraft-server",
-        memoryReservationMiB: 1024,
+        memoryReservationMiB: 2560,
         portMappings: [
           {
             containerPort: 25565,
@@ -218,7 +220,7 @@ export class Minecraft extends Stack {
 
     minecraftContainerDef.addMountPoints({
       containerPath: "/data",
-      sourceVolume: "minecraft",
+      sourceVolume: dockerVolumeName,
       readOnly: false,
     });
 

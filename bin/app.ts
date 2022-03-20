@@ -8,7 +8,8 @@ new Minecraft(app, 'Minecraft', {
     spotPrice: "0.0126", 
     minecraftImageTag: "latest",
     minecraftEnvVars: {
-        TYPE: "PAPER"
+        TYPE: "PAPER",
+        MEMORY: "2560M"
     },
     domainSettings: {
         domain: "minecraft.gozza.dev",
