@@ -39,9 +39,26 @@ import {
 } from "./utils/userDataCommands";
 
 interface Props extends StackProps {
+  /**
+   * The max price you are willing to pay
+   * for an EC2 Spot Instance to run.
+   */
   spotPrice: string;
+  /**
+   * and ENV Vars you would like to pass down to the Minecraft
+   * Docker Container Runtime. See https://github.com/itzg/docker-minecraft-server
+   */
   minecraftEnvVars?: { [key: string]: string };
+  /**
+   * use this property to specify the version of java to run the minecraft server on
+   * https://github.com/itzg/docker-minecraft-server#running-minecraft-server-on-different-java-version
+   */
   minecraftImageTag: string;
+  /**
+   * If you would like every subsequent EC2 Launch to trigger
+   * Google Domain DNS updates, specifiy the Google Domain properties here.
+   * In the future we may support other Domain providers.
+   */
   domainSettings?: {
     provider: "google";
     username: string;
@@ -59,8 +76,16 @@ export class Minecraft extends Stack {
     const vpc = new Vpc(this, "minecraft-vpc", {
       enableDnsHostnames: true,
       enableDnsSupport: true,
+      /**
+       * We set maxAzs to one so that we can be sure that all
+       * EC2s will launch in the same AZ. This way we can also be sure that
+       * our later configured EBS volume will be in the correct AZ.
+       */
       maxAzs: 1,
-      natGateways: 0, // this is not cheap and we don't want any
+      /**
+       * Nat Gateways are very expensive. btw.
+       */
+      natGateways: 0,
       subnetConfiguration: [
         { cidrMask: 23, name: "Public", subnetType: SubnetType.PUBLIC },
         {
@@ -70,6 +95,12 @@ export class Minecraft extends Stack {
         },
       ],
     });
+
+    /**
+     * This is the EBS Volume that will contain our server files
+     * it will persist against all costs in the AZ it is created.
+     * and attached / re-attached on every instance creation.
+     */
 
     const minecraftEbs = new Volume(this, "minecraft-ebs", {
       availabilityZone: vpc.availabilityZones[0],
@@ -125,6 +156,11 @@ export class Minecraft extends Stack {
       ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore")
     );
 
+    /**
+     * I won't lie, this is egregious. We don't need EC2FullAccess
+     * but I did not know the permissions required to attach EBS volumes to
+     * EC2 so, I just went with this. We should find the correct permissions... 
+     */
     asg.role.addManagedPolicy(
       ManagedPolicy.fromAwsManagedPolicyName("AmazonEC2FullAccess")
     );

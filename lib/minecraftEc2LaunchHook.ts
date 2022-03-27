@@ -51,7 +51,6 @@ export async function handler(event: Event, context: any) {
         const res = await axios.get(
           `https://${username}:${password}@domains.google.com/nic/update?hostname=${domain}&myip=${publicIp}`
         );
-        console.log(res.data);
       }
     } catch (e) {
       console.log(e);
