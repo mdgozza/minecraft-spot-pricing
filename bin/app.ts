@@ -11,12 +11,6 @@ new Minecraft(app, 'Minecraft', {
         TYPE: "PAPER",
         MEMORY: "2560M"
     },
-    domainSettings: {
-        domain: "minecraft.gozza.dev",
-        username: "",
-        password: "",
-        provider: "google"
-    },
     rconPassword: "",
     rconPort: "25575"
 });
